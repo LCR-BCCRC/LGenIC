@@ -495,8 +495,7 @@ def get_args():
     cnv_args.add_argument("-g", "--genes", metavar="BED", default=None, type=lambda x: is_valid_file(x, parser), help="Input BED4+ file listing start and end positions of genes/exons")
     cnv_args.add_argument("-a", "--arms", metavar="TSV", default=None, type=lambda x: is_valid_file(x, parser), help="Input tab-delimited file listing the positions of chromosome arms")
 
-    parser.add_argument("-l", "--lymphgen_genes", metavar="TXT", default=None, type=lambda x: is_valid_file(x, parser), required=False, help="An optional file listing all Entrez IDs considered by the LymphGen classifier. Output will be subset to these genes")
-    parser.add_argument("-s", "--sequencing_type", metavar="SEQ", choices=["targeted", "exome", "genome"], required=True, help="Sequencing type used to obtain somatic mutations")
+    parser.add_argument("-l", "--lymphgen_genes", metavar="TXT", default=None, type=lambda x: is_valid_file(x, parser), required=False, help="An optional file listing all Entrez IDs considered by the LymphGen classifier OR listing Entrez IDs or Hugo_Symbols of genes covered by a targeted capture panel. Output will be subset to these genes")
     parser.add_argument("-o", "--outdir", metavar="PATH", required=True, type=lambda x: is_valid_dir(x, parser), help="Output directory for LymphGen input files")
     parser.add_argument("--outprefix", metavar="STRING", default=None, help="Output files will be prefixed using this string [Default: Use the base name of the MAF file]")
     parser.add_argument("-v", "--verbose", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], default="INFO", help="Set logging verbosity")
@@ -629,38 +628,13 @@ def load_entrez_ids(entrez_file: str, hugo_column: str="Approved symbol", entrez
     return hugo_name_to_id, alt_hugo_name_to_id
 
 
-def load_subset_ids(id_file):
+def load_subset_ids(id_file, out_gene_list, gene_ids: dict, alt_gene_ids: dict = None):
     """
-    Loads a set of Entrez IDs from a specified file. One ID/line
-
-    :param id_file:
-    """
-
-    subset_ids = []
-    with open(id_file) as f:
-        for line in f:
-            line = line.rstrip("\n").rstrip("\r")
-            if not line.isdigit():
-                raise TypeError("Invalid Entrez ID when processing the --lyphmgen_genes file: %s" % line)
-            subset_ids.append(line)
-
-    subset_ids = set(subset_ids)
-    return subset_ids
-
-
-def generate_mut_flat(in_maf: str, seq_type: str, gene_ids: dict, out_mut_flat: str, out_gene_list: str, alt_gene_ids: dict = None, subset_ids: iter = None):
-    """
-    Converts a MAF file into the mutation flat file and gene list used by LymphGen
-    WARNING: GRCh37/hg19 is currently only supported!
-
-    An example of the output mutation FLAT file:
-    Sample	ENTREZ.ID	Type	Location
-    Sample1	604	MUTATION	187451395
-    Sample1	604	MUTATION	187451408
-    Sample1	613	MUTATION	23523596
-    Sample1	970	TRUNC	6590925
-    Sample1	1840	Synon	113495932
-
+    Loads a set of Hugo_Symbols from a specified file and converts it to ENTREZ.ID. One ID/line. 
+    OR loads a set of Entrez IDs from a file. One ID/line. 
+    
+    Writes the output gene list to file. 
+    
     An example of the output gene list:
     "ENTREZ.ID"
     60
@@ -673,18 +647,73 @@ def generate_mut_flat(in_maf: str, seq_type: str, gene_ids: dict, out_mut_flat: 
     639
     673
 
-    If targeted sequencing is specified, only the genes with at least one non-synonmymous mutation in the MAF file are used for
-    the gene list. Otherwise, ALL genes are used.
+    :param id_file: A string specifying the path to a file containing gene IDs as Hugo_Symbol or Entrez ID. 
+    :param gene_ids: A dictionary containing the mapping between Hugo_Symbol: Entrez_Gene_ID.
+    :param out_gene_list: A string specifying the output path to the gene list
+    :param alt_gene_ids: An additional dictionary specifying alternate Hugo_Symbol: Entrez_Gene_ID mappings
+    :return: A list specifying Entrez IDs to subset the maf to
+    """
+
+    subset_ids = []
+    header_written = False
+    with open(id_file) as f, open(out_gene_list, "w") as o:
+        for line in f:
+            line = line.rstrip("\n").rstrip("\r")
+        
+            # If the gene ID is a digit, it's probably already an Entrez ID
+            if line.isdigit(): 
+                entrez_id = line
+            else: 
+                hugo_name = line
+                try:
+                    entrez_id = gene_ids[hugo_name]
+                except KeyError:
+                    # If this gene does not have a Entrez ID, are we prehaps using an older Hugo_Symbol?
+                    if hugo_name in alt_gene_ids:
+                        entrez_id = alt_gene_ids[hugo_name]
+                    else:
+                        # Skip this mutation if there is no Entrez ID
+                        logging.warning("Hugo_Symbol \'%s\' has no matching Entrez ID" % hugo_name)
+                        continue
+
+            subset_ids.append(entrez_id)
+            # Write this ID to file
+            if not header_written: 
+                header_written = True
+                o.write("\"ENTREZ.ID\"" + os.linesep)
+                
+            o.write(entrez_id)
+            o.write(os.linesep)
+            
+            
+    subset_ids = set(subset_ids)
+    return subset_ids
+
+
+def generate_mut_flat(in_maf: str, gene_ids: dict, out_mut_flat: str, alt_gene_ids: dict = None, subset_ids: iter = None):
+    """
+    Converts a MAF file into the mutation flat file and gene list used by LymphGen
+    WARNING: Only GRCh37/hg19 is currently supported!
+
+    An example of the output mutation FLAT file:
+    Sample	ENTREZ.ID	Type	Location
+    Sample1	604	MUTATION	187451395
+    Sample1	604	MUTATION	187451408
+    Sample1	613	MUTATION	23523596
+    Sample1	970	TRUNC	6590925
+    Sample1	1840	Synon	113495932
+
+    Subsets the maf file to the list of genes provided with the subset_ids argument. If the default included lymphgen_genes.txt 
+    file is used, all genes currently used in LymphGen classification will be included. If a list of hugo_symbols that represents
+    a targeted sequencing panel is provided, the maf will be subset to the specified genes. 
 
     The following MAF columns are required: Hugo_Symbol, Variant_Classification, Tumor_Sample_Barcode. If NCBI_Build and
     Start_Position are found, the output mutation flat file will contain an additional column specifying "Location".
-     If Tumor_Seq_Allele2 is provided, the MYD88 hotspot mutations will be annotated as "L265P"
+    If Tumor_Seq_Allele2 is provided, the MYD88 hotspot mutations will be annotated as "L265P"
 
     :param in_maf: A string containing a filepath to a MAF file containing the variants of interest
-    :param seq_type: A string specifying the sequencing type used to identify mutations. Only "targeted", "exome", and "genome" are supported
     :param gene_ids: A dictionary containing the mapping between Hugo_Symbol: Entrez_Gene_ID.
     :param out_mut_flat: A string specifying the output path to the mutation flat file
-    :param out_gene_list: A string specifying the output path to the gene list
     :param alt_gene_ids: An additional dictionary specifying alternate Hugo_Symbol: Entrez_Gene_ID mappings
     :param subset_ids: An interable specifying a list of Entrez IDs. Only mutations within these Entrez IDs will be output
     :return: A list specifying all samples analyzed for mutations
@@ -707,7 +736,7 @@ def generate_mut_flat(in_maf: str, seq_type: str, gene_ids: dict, out_mut_flat: 
     if alt_gene_ids is None:
         alt_gene_ids = {}
 
-    # For targeted sequencing, which genes have we sequenced and seen mutations in?
+    # 
     genes_seen = {}
     skipped_mut = []  # Store mutations in genes with no Entrez ID
 
@@ -824,30 +853,7 @@ def generate_mut_flat(in_maf: str, seq_type: str, gene_ids: dict, out_mut_flat: 
         logging.warning("%s mutations in the MAF file were not converted. These either don't have a valid Entrez ID, or they were not in the --lymphgen_gene file" % len(skipped_mut))
 
     logging.info("Finished processing MAF file")
-    logging.info("Generating gene list")
-    # Generate the gene list file
-    # This file a single column with the Entrez ID, as that is all LymphGen currently supports
-    with open(out_gene_list, "w") as o:
-        # Write header
-        o.write("\"ENTREZ.ID\"" + os.linesep)
-
-        # Write out all genes we have seen a mutation in
-        for entrez_id in genes_seen.keys():
-            if subset_ids is not None and entrez_id not in subset_ids:
-                continue  # Skip these gene, as it wasn't in the --lymphgen_gene list
-            o.write(entrez_id)
-            o.write(os.linesep)
-
-        if seq_type == "exome" or seq_type == "genome":
-            # We have sequenced (effectively) all genes in the human genome. Write out all remaining genes
-            for entrez_id in gene_ids.values():
-                if entrez_id in genes_seen:  # We have already written out this gene. Skip it
-                    continue
-                if subset_ids is not None and entrez_id not in subset_ids:
-                    continue  # Skip these gene, as it wasn't in the --lymphgen_gene list
-                o.write(entrez_id)
-                o.write(os.linesep)
-
+    
     return list(sample_list)
 
 
@@ -1289,13 +1295,13 @@ def main(args=None):
 
     # If a --lymphgen_genes file was provided, load those genes
     subset_ids = None
+    out_gene_list = args.outdir + os.sep + args.outprefix + "_gene_list.txt"
     if args.lymphgen_genes:
-        subset_ids = load_subset_ids(args.lymphgen_genes)
+        subset_ids = load_subset_ids(args.lymphgen_genes, out_gene_list, gene_ids, alt_gene_ids)
 
     # Generate the mutation flat file and gene list using the input MAF file and Entrez IDs
     out_mut_flat = args.outdir + os.sep + args.outprefix + "_mutation_flat.tsv"
-    out_gene_list = args.outdir + os.sep + args.outprefix + "_gene_list.txt"
-    sample_list = generate_mut_flat(args.maf, args.sequencing_type, gene_ids, out_mut_flat, out_gene_list, alt_gene_ids = alt_gene_ids, subset_ids=subset_ids)
+    sample_list = generate_mut_flat(args.maf, gene_ids, out_mut_flat, alt_gene_ids = alt_gene_ids, subset_ids=subset_ids)
 
     # Generate the copy number gene list file and arm flat file
     if args.cnvs:
