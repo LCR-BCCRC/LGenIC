@@ -848,7 +848,7 @@ def generate_mut_flat(in_maf: str, gene_ids: dict, out_mut_flat: str, alt_gene_i
 
     # Check to see that we actually converted mutations
     if len(genes_seen) == 0:
-        raise AttributeError("No mutations were successfully converted. Check that the --entrez_ids file has valid Hugo Symbols matching the --maf file")
+        logging.warning("No mutations were successfully converted. Check that the --entrez_ids file has valid Hugo Symbols matching the --maf file")
     elif skipped_mut:
         logging.warning("%s mutations in the MAF file were not converted. These either don't have a valid Entrez ID, or they were not in the --lymphgen_gene file" % len(skipped_mut))
 
