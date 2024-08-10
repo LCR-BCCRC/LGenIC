@@ -9,18 +9,18 @@ identify genes affected by such events
 ## Usage
 If you only have single nucleotide variants and small insertions and deletions:
 ```bash
-./generate_input.py --lymphgen_genes resources/lymphgen_genes.txt --maf /path/to/maf/file.maf --entrez_ids resources/hugo2entrez.tsv --sequencing_type exome --outdir /path/to/outdir/
+./generate_input.py --lymphgen_genes resources/lymphgen_genes.txt --maf /path/to/maf/file.maf --entrez_ids resources/hugo2entrez.tsv --outdir /path/to/outdir/
 ```
 
 Where --maf contains your variants of interest, and their coordinates relative to the GRCh37 reference genome, --entrez_ids is a
 tab-delineated file with the columns "Approved symbol" and "NCBI Gene ID(supplied by NCBI)". An example file is provided in the resources folder.
  This file can be downloaded from https://www.genenames.org/download/custom/.
 
-The --lympgen_genes file contains a list of Entrez IDs (one per line) which will be used to subset the output. The default file (in the resources folder) contains the current list of LympghGen SNVs and CNV features.
+The --lympgen_genes file contains a list of Entrez IDs or Hugo_Symbols (one per line) which will be used to subset the output. The default file (in the resources folder) contains the current list of LympghGen SNVs and CNV features. Provide a custom file to specify which genes are covered by a targeted sequencing panel. All samples in the maf file must be sequenced with the same panel; if you have different panels you must run a separate maf file and associated targeted gene list for each panel. 
  
 If you also have CNV info:
 ```bash
-./generate_input.py --lymphgen_genes resources/lymphgen_genes.txt --maf /path/to/maf/file.maf --entrez_ids resources/hugo2entrez.tsv --sequencing_type exome --outdir /path/to/outdir/ --cnvs /path/to/cnvs/file.tsv --genes resources/gene_coordinates.bed6 --arms resources/arm_coordinates.tsv
+./generate_input.py --lymphgen_genes resources/lymphgen_genes.txt --maf /path/to/maf/file.maf --entrez_ids resources/hugo2entrez.tsv --outdir /path/to/outdir/ --cnvs /path/to/cnvs/file.tsv --genes resources/gene_coordinates.bed6 --arms resources/arm_coordinates.tsv
 ```
 
 Where --cnvs file has five columns: Tumor_Sample_Barcode, chromosome, start, end, CN. If providing log2 ratios (log2(absoluteCN) - 1), please specify the --log2 flag. 
@@ -29,7 +29,7 @@ The --genes file is a BED file specifying the coordinates of genes/exons, while 
 While the --lymphgen_genes file is optional, it is STRONGLY recommended when you are including CNVs, as I have noticed certain copy number features being dropped if too many CNVs are provided to LymphGen
 
 ## Output
-gene_list: A list of Entrez IDs examined. If exome or genome is specified, this contains all genes
+gene_list: A list of Entrez IDs examined. 
 
 sample_annotation: Specifies sample information, and which samples have CN info, BCL2 and BCL6 translocations. If you have SV info, the translocation
 status of BCL2 and BCL6 should be specified in this file (0=No event, 1=Translocation)
