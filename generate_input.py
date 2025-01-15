@@ -658,7 +658,7 @@ def load_subset_ids(id_file, out_gene_list, gene_ids: dict, alt_gene_ids: dict =
     header_written = False
     with open(id_file) as f, open(out_gene_list, "w") as o:
         for line in f:
-            line = line.rstrip("\n").rstrip("\r")
+            line = line.rstrip("\n").rstrip("\r").rstrip(" ").lstrip(" ")
         
             # If the gene ID is a digit, it's probably already an Entrez ID
             if line.isdigit(): 
