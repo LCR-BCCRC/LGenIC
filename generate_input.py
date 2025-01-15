@@ -1270,7 +1270,7 @@ def generate_sample_annot(samples: iter, cnv_samples: iter, out_sample_annot: st
         o.write("\t".join(out_header_cols))
         o.write(os.linesep)
 
-        for sample in samples:
+        for sample in list(set(samples + list(cnv_samples))):
             # Were CNVs provided for this sample?
             if sample in cnv_samples:
                 has_cn = "1"
